@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Today's DeepSeek spend",
+    "description": "A small capsule in the sidebar foot: today's spend and the current DeepSeek rate period, with a hover card for cache hits, rates, and the next switch."
+  }
+}

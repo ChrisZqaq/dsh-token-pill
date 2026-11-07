@@ -1,0 +1,9 @@
+# dsh-token-pill bundle patch.
+#
+# One Host row mounts the package. The pill itself is a Client half declared in
+# package.json `dsh.client`; the row id, the client factory id, and the package
+# name must all agree.
+- insert:
+    - id: dsh-token-pill
+      name: '@local/dsh-token-pill'
+      config: {}

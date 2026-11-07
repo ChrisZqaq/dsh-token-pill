@@ -1,0 +1,43 @@
+{
+  "name": "@local/dsh-token-pill",
+  "version": "0.2.0",
+  "private": true,
+  "type": "module",
+  "description": "DeepSeek token 与花费小胶囊：侧边栏底部一枚胶囊，显示今日总成本与当前峰谷时段，悬停出明细。",
+  "keywords": [
+    "dsh-plugin",
+    "deepseek",
+    "token-usage",
+    "cost"
+  ],
+  "license": "MIT",
+  "exports": {
+    ".": "./index.js",
+    "./client": "./client.js",
+    "./locale/*.json": "./locale/*.json"
+  },
+  "files": [
+    "index.js",
+    "client.js",
+    "host/*.js",
+    "cordis.patch.yml",
+    "locale/*.json"
+  ],
+  "scripts": {
+    "verify": "node scripts/verify.mjs"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "immediately": true,
+      "inject": [
+        "@deepseek-ai/dsh-api-remotes",
+        "@deepseek-ai/dsh-client-locale",
+        "@deepseek-ai/dsh-client-ui-sidebar"
+      ]
+    }
+  }
+}
