@@ -34,6 +34,8 @@ globalThis.window = {
   AbortController,
   addEventListener: () => {},
   removeEventListener: () => {},
+  location: { href: 'dsh-app://app/' },
+  fetch: async () => ({ ok: true, status: 204, json: async () => ({}) }),
 }
 globalThis.document = {
   visibilityState: 'visible',
@@ -47,11 +49,25 @@ globalThis.window.__ModuleLoader__ = { load: (definition) => (loaded = definitio
 
 /** Minimal hook shim: enough to call the component without a renderer. */
 const React = {
-  createElement: (type, props, ...children) => ({ type, props: props ?? {}, children }),
+  createElement: (type, props, ...children) => ({
+    type,
+    props: { ...(props ?? {}), children: children.length <= 1 ? children[0] : children },
+    children,
+  }),
   useState: (initial) => [typeof initial === 'function' ? initial() : initial, () => {}],
   useEffect: () => {},
   useRef: (initial) => ({ current: initial ?? null }),
   useCallback: (fn) => fn,
+  Component: class {
+    constructor(props) {
+      this.props = props
+      this.state = {}
+    }
+
+    setState(next) {
+      this.state = { ...this.state, ...next }
+    }
+  },
 }
 
 await import(pathToFileURL(join(root, 'client.js')).href)
@@ -74,12 +90,36 @@ check('client injects the locale service', client.inject.includes('locale'))
 check('projection key matches what the client reads', tokenPillProjection.key === 'tokenPill', tokenPillProjection.key)
 
 const registrations = []
-const fakeCtx = {
+const declared = new Set(client.inject.flatMap((name) => [name, name.split('.')[0]]))
+const services = {
   remote: { account: {} },
   locale: { register: () => {}, bind: () => (key) => key, getLocale: () => ({ id: 'zh-CN' }) },
-  effect: (fn) => fn(),
   slots: { inject: (name, fn) => fn(), register: (options, component) => registrations.push({ options, component }) },
 }
+/**
+ * Cordis throws on a property read for anything the plugin did not declare in
+ * `inject`, so the shim does too: an undeclared read must fail here, not on
+ * the user's screen.
+ */
+const fakeCtx = new Proxy(services, {
+  get(target, key) {
+    if (typeof key === 'symbol' || key === 'then') return target[key]
+    if (key === 'effect') return (fn) => fn()
+    if (key in target) {
+      if (!declared.has(key) && key !== 'effect') throw new Error(`cannot get property "${key}" without inject`)
+      return target[key]
+    }
+    throw new Error(`cannot get property "${key}" without inject`)
+  },
+})
+check('the shim refuses undeclared services like Cordis does', (() => {
+  try {
+    fakeCtx.fetch
+    return false
+  } catch {
+    return true
+  }
+})())
 client.apply(fakeCtx)
 check('apply registers exactly one sidebar-foot entry', registrations.length === 1, String(registrations.length))
 check('entry uses the footer list slot', registrations[0]?.options?.name === 'sidebar.footer.action')
@@ -237,7 +277,11 @@ check('a non-zero cent floor is never shown as zero', fmtCNY(0.0001) === '¥0.01
 // --------------------------------------------------------------------- render
 console.log('\nrender')
 const Pill = registrations[0].component
-const tree = Pill({ wide: true })
+// The registered entry is the guard; render through it the way React would.
+const guarded = Pill({ wide: true })
+const guard = new guarded.type(guarded.props)
+const child = guard.render()
+const tree = typeof child?.type === 'function' ? child.type(child.props) : child
 const flatten = (node, out = []) => {
   if (node === null || node === undefined || typeof node === 'boolean') return out
   if (Array.isArray(node)) {

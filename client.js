@@ -329,7 +329,7 @@ window.__ModuleLoader__.load({
         const load = useCallback(
           async (options) => {
             try {
-              const value = await readUsage(ctx?.fetch, options?.signal)
+              const value = await readUsage(window.fetch.bind(window), options?.signal)
               setData(value)
               setError(null)
               dataAt.current = Date.now()
@@ -691,6 +691,28 @@ window.__ModuleLoader__.load({
       }
     }
 
+    /** Keeps the capsule on screen even when the reading component throws. */
+    class PillBoundary extends React.Component {
+      constructor(props) {
+        super(props)
+        this.state = { failed: false }
+      }
+
+      static getDerivedStateFromError() {
+        return { failed: true }
+      }
+
+      render() {
+        if (!this.state.failed) return this.props.children
+        return h(
+          'button',
+          { type: 'button', className: 'dsht-pill', 'data-error': 'yes', title: DICTIONARIES.en.failed },
+          h('span', { className: 'dsht-dot', 'data-period': 'peak' }),
+          h('span', null, h('span', { className: 'dsht-cost' }, '¥—')),
+        )
+      }
+    }
+
     return {
       inject: ['slots', 'locale', 'remote', 'remote.account'],
       apply(ctx) {
@@ -699,7 +721,10 @@ window.__ModuleLoader__.load({
         ctx.slots.inject(SLOT, () =>
           ctx.slots.register(
             { name: SLOT, id: ENTRY_ID, order: 20, locale: NS, label: () => ctx.locale.bind(NS)('label') },
-            TokenPill,
+            /** Never let a render error empty the sidebar foot. */
+            function Guarded(props) {
+              return h(PillBoundary, null, h(TokenPill, props))
+            },
           ),
         )
       },

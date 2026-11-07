@@ -1,6 +1,6 @@
 {
   "name": "@local/dsh-token-pill",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "private": true,
   "type": "module",
   "description": "DeepSeek token 与花费小胶囊：侧边栏底部一枚胶囊，显示今日总成本与当前峰谷时段，悬停出明细。",
