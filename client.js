@@ -10,8 +10,8 @@ window.__ModuleLoader__.load({
     /** List slot in the sidebar foot; the pill renders above the Settings row. */
     const SLOT = 'sidebar.footer.action'
     const ENTRY_ID = 'token-pill'
-    /** Projection key registered by the host half. */
-    const PROJECTION = 'tokenPill'
+    /** Host route serving the cross-Session aggregate. */
+    const ROUTE = '/dsh-token-pill/usage'
 
     const REFRESH_MS = 60_000
     const STALE_MS = 20_000
@@ -183,29 +183,6 @@ window.__ModuleLoader__.load({
       return { cost: 0, peakCost: 0, hit: 0, miss: 0, out: 0, requests: 0 }
     }
 
-    /** RPC answers arrive wrapped as `{ ok, value }`; peel the envelope. */
-    function unwrap(value) {
-      let current = value
-      for (let depth = 0; depth < 3; depth += 1) {
-        if (!current || typeof current !== 'object' || Array.isArray(current)) break
-        const inner = current.value ?? current.data ?? current.result
-        if (inner === undefined || inner === null || typeof inner !== 'object') break
-        current = inner
-      }
-      return current
-    }
-
-    function listRows(input) {
-      const value = unwrap(input)
-      if (Array.isArray(value)) return value
-      if (!value || typeof value !== 'object') return []
-      for (const key of ['items', 'rows', 'sessions']) {
-        if (Array.isArray(value[key])) return value[key]
-      }
-      const firstArray = Object.values(value).find((entry) => Array.isArray(entry))
-      return firstArray ?? []
-    }
-
     function withTimeout(promise, ms, label) {
       return new Promise((resolve, reject) => {
         const timer = setTimeout(() => reject(new Error(`${label} timed out after ${ms}ms`)), ms)
@@ -247,35 +224,31 @@ window.__ModuleLoader__.load({
      * Every Session carries the host projection, so today's spend is the sum of
      * the per-day ledgers — no transcript replay, and no ceiling on history.
      */
-    async function readUsage(remote, signal) {
-      const session = remote?.session
-      if (!session?.list) throw new Error('session service unavailable')
-      const rows = listRows(await withTimeout(session.list({}, signal), 8_000, 'session.list'))
+    async function readUsage(fetchImpl, signal) {
+      const request = fetchImpl ?? ((input, init) => window.fetch(input, init))
+      const response = await withTimeout(
+        request(ROUTE, { credentials: 'same-origin', cache: 'no-store', signal }),
+        10_000,
+        'usage',
+      )
+      if (!response.ok) throw new Error(`usage route answered ${response.status}`)
+      const payload = await response.json()
       const today = dayKey(Date.now())
       const result = {
         day: today,
         total: emptyBucket(),
         byModel: {},
         unpriced: {},
-        sessions: 0,
-        pending: 0,
-        prices: null,
+        sessions: Number(payload?.sessions) || 0,
+        pending: Number(payload?.pending) || 0,
+        prices: payload?.prices ?? null,
         windows: null,
         offPeak: FALLBACK_OFF_PEAK,
       }
-      for (const row of rows) {
-        const view = row?.projections?.values?.[PROJECTION]
-        if (!view) {
-          result.pending += 1
-          continue
-        }
-        result.sessions += 1
-        result.prices ??= view.prices ?? null
-        if (Array.isArray(view.windows) && view.windows.length > 0) result.windows ??= view.windows
-        if (typeof view.offPeak === 'number') result.offPeak = view.offPeak
-        const day = view.days?.[today]
-        if (day) mergeDay(result, day)
-      }
+      if (Array.isArray(payload?.windows) && payload.windows.length > 0) result.windows = payload.windows
+      if (typeof payload?.offPeak === 'number') result.offPeak = payload.offPeak
+      const day = payload?.days?.[today]
+      if (day) mergeDay(result, day)
       return result
     }
 
@@ -356,7 +329,7 @@ window.__ModuleLoader__.load({
         const load = useCallback(
           async (options) => {
             try {
-              const value = await readUsage(ctx.remote, options?.signal)
+              const value = await readUsage(ctx?.fetch, options?.signal)
               setData(value)
               setError(null)
               dataAt.current = Date.now()
@@ -719,7 +692,7 @@ window.__ModuleLoader__.load({
     }
 
     return {
-      inject: ['slots', 'locale', 'remote', 'remote.session', 'remote.account'],
+      inject: ['slots', 'locale', 'remote', 'remote.account'],
       apply(ctx) {
         ctx.effect(() => ctx.locale.register(NS, DICTIONARIES), 'token-pill dictionaries')
         const TokenPill = makeTokenPill(ctx)
@@ -738,8 +711,7 @@ window.__ModuleLoader__.load({
         readUsage,
         mergeDay,
         emptyBucket,
-        listRows,
-        unwrap,
+        dayKey,
         fmtTokens,
         fmtCNY,
         fmtDuration,

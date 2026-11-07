@@ -2,8 +2,8 @@
  * Offline harness: no browser, no Host, no network.
  *
  * It fakes the ModuleLoader / React / Cordis surfaces the bundle touches, then
- * checks the slot contract, the dictionary pairs, the host ledger fold, and the
- * client aggregation over synthetic `session/list` rows.
+ * checks the slot contract, the dictionary pairs, the host ledger fold, the
+ * Host aggregate route, and the client read of that route.
  *
  * Run: node scripts/verify.mjs
  */
@@ -68,13 +68,14 @@ const { foldEvent, tokenPillProjection } = host
 // ------------------------------------------------------------------- contract
 console.log('\npackage + slot contract')
 check('bundle id matches the package name', loaded.id === '@local/dsh-token-pill', loaded?.id)
-check('client injects the session service it reads', client.inject.includes('remote.session'), client.inject.join(','))
+check('client reads usage over the host route, not session RPC', !client.inject.includes('remote.session'), client.inject.join(','))
+check('client injects the account service for the balance line', client.inject.includes('remote.account'))
 check('client injects the locale service', client.inject.includes('locale'))
 check('projection key matches what the client reads', tokenPillProjection.key === 'tokenPill', tokenPillProjection.key)
 
 const registrations = []
 const fakeCtx = {
-  remote: { session: { list: async () => ({ ok: true, value: { items: [] } }) }, account: {} },
+  remote: { account: {} },
   locale: { register: () => {}, bind: () => (key) => key, getLocale: () => ({ id: 'zh-CN' }) },
   effect: (fn) => fn(),
   slots: { inject: (name, fn) => fn(), register: (options, component) => registrations.push({ options, component }) },
@@ -159,34 +160,73 @@ check('the view ships today only through days', Boolean(view.days[key]))
 check('the wire view round-trips through its own schema', tokenPillProjection.wire.viewSchema.parse(view) === view)
 check('the wire view is published to session/list', tokenPillProjection.wire.summary === true)
 
-// -------------------------------------------------------------- client reading
-console.log('\nclient aggregation')
-const rowView = {
-  prices: pricing.PRICES,
-  windows: pricing.PEAK_WINDOWS,
-  offPeak: 0.5,
-  days: { [key]: { requests: 2, hit: 2_000_000, miss: 1_000_000, out: 500_000, cost: 3, peakCost: 4, models: { flash: { label: 'flash', hit: 2_000_000, miss: 1_000_000, out: 500_000, cost: 3, requests: 2 } }, unpriced: { 'x-1': 1 } } },
-}
-const remote = {
-  session: {
-    list: async () => ({
-      ok: true,
-      value: { items: [{ sessionId: 'a', projections: { values: { tokenPill: rowView } } }, { sessionId: 'b' }] },
-    }),
+// -------------------------------------------------------------- host aggregate
+console.log('\nhost aggregate')
+const usageModule = await import(pathToFileURL(join(root, 'host/usage.js')).href)
+const dayA = { requests: 2, hit: 1_000_000, miss: 500_000, out: 100_000, cost: 1.5, peakCost: 3, models: { flash: { label: 'flash', requests: 2, hit: 1_000_000, miss: 500_000, out: 100_000, cost: 1.5 } }, unpriced: {} }
+const dayB = { requests: 1, hit: 0, miss: 100_000, out: 10_000, cost: 0.25, peakCost: 0.5, models: { flash: { label: 'flash', requests: 1, hit: 0, miss: 100_000, out: 10_000, cost: 0.25 }, pro: { label: 'pro', requests: 1, hit: 0, miss: 0, out: 0, cost: 0 } }, unpriced: { 'x-1': 2 } }
+const merged = usageModule.mergeDaysInto({}, { [dayKey(monday10)]: dayA, [dayKey(saturday10)]: dayB })
+const mergedMonday = merged[dayKey(monday10)]
+check('days merge by key, not by session', Object.keys(merged).length === 2, Object.keys(merged).join())
+check('merged day sums cost', Math.abs(mergedMonday.cost - 1.5) < 1e-9)
+check('merged models keep one row per model', Object.keys(mergedMonday.models).join() === 'flash', Object.keys(mergedMonday.models).join())
+check('merged day sums requests', mergedMonday.requests === 2 && merged[dayKey(saturday10)].requests === 1)
+check('unpriced models merge into one row', usageModule.mergeDaysInto(merged, { [dayKey(monday10)]: dayB })[dayKey(monday10)].unpriced['x-1'] === 2)
+check('two sessions of one day add up', Math.abs(usageModule.mergeDaysInto({}, { [dayKey(monday10)]: dayA })[dayKey(monday10)].cost + dayB.cost - 1.75) < 1e-9)
+
+const observed = []
+const fakeHost = {
+  sessionQuery: {
+    listSessions: async () => [{ header: { id: 'live-1' } }, { header: { id: 'cold-1' } }, { header: { id: 'cold-2' } }],
+    observeSession: async (id) => {
+      observed.push(id)
+      if (id === 'cold-2') throw new Error('unreadable log')
+      return {
+        projections: { values: { tokenPill: { days: { [dayKey(Date.now())]: dayA } } } },
+        [Symbol.dispose]() {},
+      }
+    },
   },
 }
+const reader = usageModule.createUsageReader(fakeHost)
+const payload = await reader()
+check('the aggregate reads every Session through observeSession', observed.length === 3, observed.join())
+check('only readable Sessions are counted', payload.sessions === 2, String(payload.sessions))
+check('an unreadable Session counts as pending, not as zero cost', payload.pending === 1, String(payload.pending))
+check('the aggregate carries the rate card', payload.prices.flash.out === 8 && payload.windows.length === 2 && payload.offPeak === 0.5)
+check('a second read inside the cache window does not re-read Sessions', (await reader()) === payload)
+const failingReader = usageModule.createUsageReader({ sessionQuery: { listSessions: async () => { throw new Error('boom') } } })
+check('a listing failure rejects instead of returning an empty total', await failingReader().then(() => false, () => true))
+
+// -------------------------------------------------------------- client reading
+console.log('\nclient reading')
 const today = dayKey(Date.now())
-rowView.days = { [today]: rowView.days[key] }
-const result = await readUsage(remote)
-check('one session contributed', result.sessions === 1)
-check('a session without the projection counts as pending', result.pending === 1)
-check('totals are summed across sessions', Math.abs(result.total.cost - 3) < 1e-9)
-check('peak equivalent is summed', Math.abs(result.total.peakCost - 4) < 1e-9)
-check('token buckets are summed', result.total.hit === 2_000_000 && result.total.miss === 1_000_000)
-check('per-model rows are merged', result.byModel.flash?.cost === 3)
-check('unpriced models are surfaced', result.unpriced['x-1'] === 1)
-check('the rate card travels with the data', result.prices?.flash?.out === 8)
-check('a missing session service fails loudly', await readUsage({}).then(() => false, () => true))
+let askedUrl
+const okFetch = async (url) => {
+  askedUrl = url
+  return {
+    ok: true,
+    status: 200,
+    json: async () => ({
+      sessions: 3,
+      pending: 1,
+      prices: pricing.PRICES,
+      windows: pricing.PEAK_WINDOWS,
+      offPeak: 0.5,
+      days: { [today]: dayA },
+    }),
+  }
+}
+const result = await readUsage(okFetch)
+check('the client reads the host route', askedUrl === '/dsh-token-pill/usage', String(askedUrl))
+check('session count comes from the host aggregate', result.sessions === 3 && result.pending === 1)
+check('today cost is taken from the host day bucket', Math.abs(result.total.cost - 1.5) < 1e-9)
+check('peak equivalent is carried through', Math.abs(result.total.peakCost - 3) < 1e-9)
+check('token buckets are carried through', result.total.hit === 1_000_000 && result.total.miss === 500_000)
+check('per-model rows are carried through', result.byModel.flash?.cost === 1.5)
+check('the rate card travels with the data', result.prices?.flash?.out === 8 && result.windows?.length === 2)
+check('a day with no usage yields zero, not a crash', (await readUsage(async () => ({ ok: true, status: 200, json: async () => ({ days: {} }) }))).total.cost === 0)
+check('a failing route fails loudly', await readUsage(async () => ({ ok: false, status: 500, json: async () => ({}) })).then(() => false, () => true))
 
 console.log('\nformatting')
 check('millions format as M', fmtTokens(2_345_678) === '2.35M')
