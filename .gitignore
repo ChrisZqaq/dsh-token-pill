@@ -1,3 +1,22 @@
 node_modules/
 *.log
 .DS_Store
+
+# 机器/密钥信息只放 ~/.dsh/infra/infra.yml，绝不入库
+infra.yml
+infra*.yml
+!infra.sample.yml
+*.pem
+*.p12
+id_rsa
+id_ed25519
+id_ed25519*
+*.key
+.env
+.env.*
+!.env.example
+.credentials.yaml
+credentials.env
+*.secret
+*.token
+cpamc-pill.json
