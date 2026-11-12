@@ -255,27 +255,22 @@ window.__ModuleLoader__.load({
     // ---------------------------------------------------------------- styling
 
     const CSS = `
-.dsht-root{position:relative;display:flex;align-items:center;min-width:0}
-.dsht-pill{display:inline-flex;align-items:center;gap:6px;height:28px;padding:0 10px;box-sizing:border-box;
-  border:1px solid var(--dsw-alias-border-l2);border-radius:999px;background:var(--dsw-alias-bg-layer-1);
-  color:var(--dsw-alias-label-primary);font:inherit;font-size:12px;line-height:1;cursor:pointer;
-  transition:background .12s ease,border-color .12s ease}
-.dsht-pill:hover{background:var(--dsw-alias-interactive-bg-hover)}
+.dsht-root{position:relative;display:flex;align-items:center;min-width:0;flex:1}
+.dsht-pill{display:inline-flex;align-items:center;justify-content:flex-start;gap:6px;min-width:0;flex:1;height:32px;padding:0 9px;box-sizing:border-box;border:0;border-radius:var(--dsw-radius-sm);background:transparent;color:var(--dsw-alias-label-secondary);font:inherit;font-size:12px;line-height:1;cursor:pointer;transition:background .12s ease,color .12s ease}
+@media (hover:hover){.dsht-pill:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}}
 .dsht-pill:focus-visible{outline:2px solid var(--dsw-alias-brand-primary);outline-offset:1px}
-.dsht-pill[data-pinned='yes']{border-color:var(--dsw-alias-border-l3)}
-.dsht-rail{width:28px;padding:0;justify-content:center}
+.dsht-pill[data-pinned='yes']{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}
+.dsht-rail{flex:none;width:28px;min-width:0;padding:0;justify-content:center}
 .dsht-pill[data-error='yes'] .dsht-dot{background:var(--dsw-alias-state-error-primary)}
 .dsht-dot{width:6px;height:6px;border-radius:50%;flex:none;background:var(--dsw-alias-label-tertiary)}
 .dsht-dot[data-period='off']{background:var(--dsw-alias-state-success-primary)}
-.dsht-dot[data-period='peak']{background:var(--dsw-alias-state-warn-primary)}
-.dsht-name{color:var(--dsw-alias-label-secondary)}
-.dsht-sep{color:var(--dsw-alias-label-tertiary)}
-.dsht-cost{font-variant-numeric:tabular-nums;color:var(--dsw-alias-label-primary)}
+.dsht-dot[data-period='peak']{background:var(--dsw-alias-state-error-primary)}
+.dsht-cost{font-variant-numeric:tabular-nums;color:inherit;white-space:nowrap}
 .dsht-muted{color:var(--dsw-alias-label-tertiary)}
 
-.dsht-card{position:fixed;z-index:60;width:304px;padding:14px 14px 12px;box-sizing:border-box;
+.dsht-card{position:fixed;z-index:60;width:312px;padding:16px 16px 14px;box-sizing:border-box;
   border:1px solid var(--dsw-alias-border-l2);border-radius:12px;background:var(--dsw-alias-bg-layer-1);
-  box-shadow:0 12px 32px rgba(0,0,0,.28);color:var(--dsw-alias-label-primary);font-size:12px;line-height:18px}
+  box-shadow:0 8px 24px rgba(0,0,0,.18);color:var(--dsw-alias-label-primary);font-size:12px;line-height:18px}
 .dsht-head{display:flex;align-items:baseline;justify-content:space-between;gap:8px;
   color:var(--dsw-alias-label-tertiary);font-size:11px}
 .dsht-title{display:flex;align-items:center;gap:8px;margin-top:4px}
@@ -284,7 +279,7 @@ window.__ModuleLoader__.load({
   border-radius:999px;font-size:11px;border:1px solid var(--dsw-alias-border-l2);
   color:var(--dsw-alias-label-secondary)}
 .dsht-chip[data-period='off']{color:var(--dsw-alias-state-success-primary);border-color:var(--dsw-alias-state-success-primary)}
-.dsht-chip[data-period='peak']{color:var(--dsw-alias-state-warn-primary);border-color:var(--dsw-alias-state-warn-primary)}
+.dsht-chip[data-period='peak']{color:var(--dsw-alias-state-error-primary);border-color:var(--dsw-alias-state-error-primary)}
 .dsht-rule{height:1px;background:var(--dsw-alias-border-l1);margin:10px 0}
 .dsht-row{display:flex;align-items:baseline;gap:8px;margin:3px 0}
 .dsht-row-label{width:34px;flex:none;color:var(--dsw-alias-label-secondary)}
@@ -566,8 +561,8 @@ window.__ModuleLoader__.load({
                   h('span', { className: 'dsht-amount' }, fmtCNY(total.cost)),
                   h(
                     'span',
-                    { className: 'dsht-chip', 'data-period': peak ? 'peak' : 'off' },
-                    h('span', { className: 'dsht-dot', 'data-period': peak ? 'peak' : 'off' }),
+                    { className: 'dsht-chip', 'data-period': !data ? 'unknown' : peak ? 'peak' : 'off' },
+                    h('span', { className: 'dsht-dot', 'data-period': !data ? 'unknown' : peak ? 'peak' : 'off' }),
                     peak ? translate('peak') : translate('offpeak'),
                     peak ? '' : ` · ${translate('halfPrice')}`,
                   ),
@@ -675,16 +670,8 @@ window.__ModuleLoader__.load({
               openCard()
             },
           },
-          h('span', { className: 'dsht-dot', 'data-period': peak ? 'peak' : 'off' }),
-          wide
-            ? h(
-                'span',
-                null,
-                h('span', { className: 'dsht-name' }, peak ? translate('peak') : translate('offpeak')),
-                h('span', { className: 'dsht-sep' }, ' · '),
-                h('span', { className: 'dsht-cost' }, data ? fmtCNY(total.cost) : '¥—'),
-              )
-            : null,
+          h('span', { className: 'dsht-dot', 'data-period': !data ? 'unknown' : peak ? 'peak' : 'off' }),
+          wide ? h('span', { className: 'dsht-cost' }, data ? fmtCNY(total.cost) : '¥—') : null,
         )
 
         return h('div', { className: 'dsht-root', ref: anchorRef }, h('style', null, CSS), pill, card)
@@ -731,6 +718,7 @@ window.__ModuleLoader__.load({
       /** Pure helpers the offline harness exercises without a Host. */
       __test__: {
         DICTIONARIES,
+        CSS,
         isPeak,
         nextChange,
         readUsage,

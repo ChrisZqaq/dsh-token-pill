@@ -75,7 +75,7 @@ const client = loaded.factory((id) => {
   if (id === 'react') return React
   throw new Error(`unexpected require(${id})`)
 })
-const { DICTIONARIES, isPeak, nextChange, readUsage, fmtTokens, fmtCNY, dayKey } = client.__test__
+const { DICTIONARIES, CSS, isPeak, nextChange, readUsage, fmtTokens, fmtCNY, dayKey } = client.__test__
 
 const host = await import(pathToFileURL(join(root, 'host/projection.js')).href)
 const pricing = await import(pathToFileURL(join(root, 'host/pricing.js')).href)
@@ -302,7 +302,14 @@ check('renders without a Host', tree?.props?.className === 'dsht-root')
 check('the pill shows a currency placeholder before data arrives', text.includes('¥—'), text.slice(0, 120))
 check('the pill carries the entry label for screen readers', flat.some((node) => node?.props?.['aria-label'] === 'label'))
 check('the period dot is decided at render time', flat.some((node) => node?.props?.['data-period']))
+const pillNode = flat.find((node) => node?.props?.className?.includes('dsht-pill'))
+const pillText = flatten(pillNode).filter((node) => typeof node === 'string').join(' ')
+check('the pill carries no period wording', !/高峰|空闲|peak|idle/i.test(pillText), pillText)
+check('the dot reports an unknown period until data lands', flatten(pillNode).some((node) => node?.props?.['data-period'] === 'unknown'))
+check('the status row is quiet, borderless, and aligned', /\.dsht-pill\{[^}]*background:transparent/.test(CSS) && /\.dsht-pill\{[^}]*border:0/.test(CSS) && /\.dsht-pill\{[^}]*justify-content:flex-start/.test(CSS))
+check('peak reads red, idle reads green', /\.dsht-dot\[data-period='peak'\]\{background:var\(--dsw-alias-state-error-primary\)\}/.test(CSS) && /\.dsht-dot\[data-period='off'\]\{background:var\(--dsw-alias-state-success-primary\)\}/.test(CSS))
 
+check('status rows divide footer space without artificial gaps', /\.dsht-root\{[^}]*flex:1/.test(CSS))
 console.log('')
 if (failures > 0) {
   console.log(`${failures} check(s) failed`)
